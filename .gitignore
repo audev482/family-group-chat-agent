@@ -32,3 +32,6 @@ expenses-*.json
 *~
 .idea/
 .vscode/
+
+# Per-file secret drops (fill-secrets.sh writes here; never commit).
+deploy/secrets/

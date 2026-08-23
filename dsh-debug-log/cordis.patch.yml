@@ -1,0 +1,7 @@
+# Debug log bundle: mirrors every ctx.logger message to stderr, so under the
+# systemd unit they land in journald (journalctl -u dsh-butler -f).
+- insert:
+    - id: debug-log
+      name: 'dsh-debug-log'
+      config:
+        stderr: true
