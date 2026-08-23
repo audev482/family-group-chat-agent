@@ -228,6 +228,9 @@ export interface EntryPatch {
  * plugin rows, the same way two CalDAV servers are two rows.
  */
 export class Tricount extends Service {
+  /** The credential store, resolved per connect so a rotation needs no restart. */
+  static inject = ['credentials'] as const
+
   /** Validated configuration. */
   private readonly settings: TricountConfig
 
