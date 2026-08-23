@@ -1,0 +1,30 @@
+# The dsh-chores bundle patch: household chores as agent tools.
+#
+# Needs the dsh-caldav and dsh-household rows (their own bundles) and the tool
+# runtime. Until those services exist this plugin stays dormant via its `inject`
+# list, so install order is free.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-chores
+#
+# The chores are VTODOs in an ordinary CalDAV collection — exactly what the
+# Nextcloud Tasks app reads and writes. Create the list in Tasks first, then name
+# it as `choresCalendar` in the dsh-household config; only override `calendar`
+# here if the chore list should live somewhere other than the household default.
+#
+# Assignment travels in the VTODO's CATEGORIES as the member's `tag`, because
+# tags are the only assignment channel the Nextcloud Tasks UI exposes. That means
+# a family member can reassign a chore by editing its tag on their phone and the
+# butler will read the change — the two directions agree because there is only
+# one authoritative field.
+#
+# requireDueDate  when true, a chore added without a date is due today rather
+#                 than undated. Off by default: an undated chore is a real
+#                 thing, and forcing a date makes everything look overdue.
+
+- insert:
+    - id: chores
+      name: 'dsh-chores'
+      config:
+        requireDueDate: false
+        # calendar: 'Household'
+        # server: home

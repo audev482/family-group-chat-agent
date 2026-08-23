@@ -1,0 +1,53 @@
+# The dsh-tricount bundle patch: the household's shared expense ledger, as transport.
+#
+# Needs a credential provider. Until one exists this row stays dormant, so install
+# order is free.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-tricount
+#
+# This is the lower half of a pair. It speaks the Tricount (bunq) API and knows
+# nothing about who the family is or what a fair split looks like — `dsh-expenses`
+# supplies that, the same way `dsh-chores` sits above `dsh-caldav`. Installing this
+# alone registers no tools; it only publishes `ctx.tricount`.
+#
+# WHY DIRECT, NOT THROUGH THE PYTHON CLI
+#
+# The household already has a `tricount-cli` driven by a separate bank-feed agent, and
+# the butler deliberately does not call it. That CLI needs Python, boto3 and AWS
+# Secrets Manager on the host, where this deployment is one Node process with an .env;
+# its guardrails are built around a Plaid transaction id as the idempotency key, which
+# a family-initiated entry simply does not have; and the library beneath it has three
+# money-affecting defects this package fixes rather than inherits (see the README).
+# The wire protocol is small enough that speaking it directly is the lesser cost:
+# one unsigned POST to register, then plain REST.
+#
+# Both agents write the same ledger. That shared ledger is the source of truth, exactly
+# as the CalDAV collections are shared between the butler and the family's phones.
+#
+# THE SHARING TOKEN IS A CREDENTIAL
+#
+# Anyone holding it can read and write the whole ledger — that is how the app's
+# share-by-link works. So `tokenRef` names a credential; it must not contain the token.
+# A pasted token is rejected at load rather than quietly written into logs and backups.
+# Take it from the Tricount app: open the tricount, ⋯ → Share, and use the token from
+# the link.
+#
+# THE DEVICE IDENTITY MUST BE STABLE
+#
+# `appId` plus `publicKeyRef` identify this installation. Leave them out and a device is
+# minted per process, which still works — the ledger is reached by its sharing token —
+# but registers a new anonymous user on every restart. The seam emits `tricount/device`
+# once with the values to persist. Set them after the first run.
+#
+# The public key is not secret in any cryptographic sense; the protocol never uses it to
+# verify anything, and the reference client throws its private half away. It lives with
+# the credentials because it is bulky and identity-bearing, not because it is sensitive.
+
+- insert:
+    - id: tricount
+      name: 'dsh-tricount'
+      config:
+        tokenRef: 'TRICOUNT_TOKEN'
+        # Set both of these after the first run, from the tricount/device event.
+        # appId: '00000000-0000-0000-0000-000000000000'
+        # publicKeyRef: 'TRICOUNT_PUBLIC_KEY'

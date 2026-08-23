@@ -1,0 +1,61 @@
+#!/usr/sbin/nft -f
+{{ ansible_managed | comment }}
+#
+# Default-deny inbound. This is cheap and correct because of one fact about the
+# butler: **it listens on nothing.** There is no web app in its profile, no API, no
+# webhook. It reaches Discord, Nextcloud, Yahoo and the model provider by opening
+# outbound connections, and every reply arrives on a connection it started.
+#
+# So the whole of its inbound attack surface is "none", and the firewall's job is
+# only to make that true of the host as well.
+#
+# Egress is NOT filtered, and pretending otherwise would be theatre: Discord, Yahoo
+# and the model API all sit behind CDNs on address ranges that change without notice,
+# so an IP allowlist would either break the butler on a Tuesday or be so broad it
+# allowed everything anyway. If you need real egress control, do it with a proxy that
+# can filter on SNI — see HARDENING.md.
+
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority filter; policy drop;
+
+    # Replies to connections the butler opened. This is what makes an
+    # outbound-only service work under a default-drop input policy.
+    ct state established,related accept
+    ct state invalid drop
+
+    iif lo accept
+
+    # ICMP, because silently dropping it breaks path-MTU discovery and then breaks
+    # TLS to some hosts in a way that takes a long time to diagnose.
+    ip protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded, parameter-problem } accept
+    ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, time-exceeded, parameter-problem, packet-too-big, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } accept
+
+    # The one way in. Restricted by source when admin_cidrs is set — on a public VPC
+    # that is the difference between a keypair being the only thing between the
+    # internet and a shell, and it not being reachable at all.
+{% if admin_cidrs | default([]) | length > 0 %}
+    ip saddr { {{ admin_cidrs | join(', ') }} } tcp dport {{ ssh_port }} accept
+{% else %}
+    # admin_cidrs is empty, so SSH is open to the internet. On a public VPC, set
+    # admin_cidrs in group_vars/all.yml to your own address or the VPC's range.
+    tcp dport {{ ssh_port }} accept
+{% endif %}
+
+    # Everything else is dropped by the chain policy, without a rejection that would
+    # confirm the host is here.
+  }
+
+  chain forward {
+    # Not a router.
+    type filter hook forward priority filter; policy drop;
+  }
+
+  chain output {
+    # The butler needs to reach four external services and DNS. Filtering by address
+    # would break on the next CDN change; see the note at the top.
+    type filter hook output priority filter; policy accept;
+  }
+}

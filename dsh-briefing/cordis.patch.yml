@@ -1,0 +1,38 @@
+# The dsh-briefing bundle patch: the morning digest.
+#
+# Optional. Needs the dsh-channel-discord, dsh-caldav, and dsh-household rows
+# from their own bundles, and reads through dsh-calendar and dsh-chores.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-briefing
+#
+# channelId is REQUIRED: the Discord channel the digest is posted to. Use the
+# same channel the family talks to the butler in, or a quieter one if you would
+# rather the digest not interrupt a conversation.
+#
+# time is local to the household time zone, and the next run is recomputed from
+# the local day each morning, so the digest keeps arriving at breakfast across a
+# daylight-saving change instead of drifting an hour twice a year.
+#
+# The digest is composed from the calendar and chore data directly, not written
+# by the model: it costs no tokens, cannot hallucinate an appointment, and still
+# arrives when the model provider is down.
+#
+# includeMail    add one line counting unread email and naming its senders. Only
+#                counts and senders — never subjects or bodies, because a digest
+#                is read by whoever is in the room. Silently does nothing when
+#                dsh-mail is not installed.
+#
+# skipWhenEmpty  post nothing on a day with no events and no due chores. Off by
+#                default — "nothing on today" is useful information.
+
+- insert:
+    - id: briefing
+      name: 'dsh-briefing'
+      config:
+        channelId: ''
+        time: '07:30'
+        days: 1
+        includeChores: true
+        includeMail: true
+        choreLookaheadDays: 2
+        skipWhenEmpty: false

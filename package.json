@@ -1,0 +1,35 @@
+{
+  "name": "dsh-butler-workspace",
+  "private": true,
+  "description": "Development workspace for the dsh-butler plugin family: a household butler for one family over Nextcloud CalDAV (calendar + VTODO chores) reachable from Discord. Each package is an independently installable dsh bundle; this root exists only for shared dev tooling.",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r exec tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-agent-default-model": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.1-rc.2",
+    "@types/js-yaml": "^4.0.9",
+    "@types/mailparser": "3.4.6",
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "8.0.1",
+    "discord.js": "14.27.0",
+    "ical.js": "2.2.1",
+    "imapflow": "1.7.2",
+    "js-yaml": "^4.1.0",
+    "mailparser": "3.9.15",
+    "nodemailer": "9.0.5",
+    "tsdav": "2.3.1",
+    "tsdown": "^0.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

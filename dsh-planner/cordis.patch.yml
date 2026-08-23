@@ -1,0 +1,63 @@
+# The dsh-planner bundle patch: the half of the butler that speaks first.
+#
+# Needs the dsh-caldav, dsh-household, and dsh-channel-discord rows (their own
+# bundles), and reads dsh-occasions as a library rather than a service. Until those
+# services exist the planner stays dormant via its `inject` list, so install order
+# is free.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-planner
+#
+# channelId is REQUIRED and has no default. A planner with no room to speak in
+# would be a timer that computes plans and tells nobody, and defaulting it to some
+# arbitrary channel is worse — the butler would start conversations somewhere the
+# family is not looking.
+#
+# A planning cycle is stored as a parent VTODO with one subtask per family member,
+# linked by RELATED-TO. That is deliberate: "trying to get consensus" is a
+# conversation that spans days, so the butler needs to remember what it asked and
+# who replied across restarts. Keeping it in Nextcloud means it survives, the family
+# can see it in the Tasks app, and anyone can tick their own subtask off there
+# instead of in chat. The cycles live in the household chore list unless `calendar`
+# names somewhere else.
+#
+# Cycle uids are deterministic — butler-holiday-thanksgiving-2026-11-26 — so a
+# duplicate create is refused by the server rather than producing a second copy.
+# That is what makes a catch-up pass after a restart safe to run.
+#
+# The planner registers no tools and writes no calendar events itself. It decides
+# what is worth raising and hands the conversation to the butler, which writes
+# agreed plans with the same calendar_add_event the family's own requests use. The
+# principle is that the butler writes DECISIONS, not DERIVATIONS: holidays and
+# birthdays stay computed by dsh-occasions and are never materialised as events.
+#
+# time              local time of day the daily pass runs.
+# planningWeekday   the day the coming weekend is planned on, 0 Sunday .. 6
+#                   Saturday. Thursday by default: late enough to be concrete,
+#                   early enough that Friday to Sunday is still shapeable.
+# *LeadDays         how far ahead each kind of occasion is raised. One number would
+#                   be wrong at both ends — a weekend raised three weeks out is
+#                   noise, and a holiday raised on the Thursday before is useless
+#                   because the flights have gone.
+# maxNudges         times one cycle is raised again before the butler goes quiet.
+#                   ONE, by choice. A butler that asks about the weekend every day
+#                   gets the channel muted, and then the family loses the morning
+#                   briefing too. Raise this only if you would genuinely rather be
+#                   chased.
+# nudgeGapDays      days to leave before raising the same cycle again.
+
+- insert:
+    - id: planner
+      name: 'dsh-planner'
+      config:
+        channelId: ''            # REQUIRED — the family room to plan in
+        time: '09:00'
+        planningWeekday: 4       # Thursday
+        workdays: [1, 2, 3, 4, 5]
+        holidayLeadDays: 24
+        birthdayLeadDays: 18
+        anniversaryLeadDays: 24
+        maxNudges: 1
+        nudgeGapDays: 3
+        planWeekends: true
+        # calendar: 'Household'  # defaults to the household chore list
+        # server: home

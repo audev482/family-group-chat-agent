@@ -1,0 +1,55 @@
+# The dsh-expenses bundle patch: the family's shared money, as tools.
+#
+# Needs the dsh-tricount and dsh-household rows (their own bundles) and the tool
+# runtime. Until those services exist this plugin stays dormant via its `inject` list,
+# so install order is free.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-expenses
+#
+# Registers eight tools: balances, list, summary, export, add, edit, refund, remove.
+# No prompt context — restating the ledger on every turn would spend tokens on every
+# passing question to serve the occasional money one, so the butler looks it up when it
+# is relevant. Same reasoning as dsh-occasions.
+#
+# THE BUTLER IS NOT THE ONLY WRITER
+#
+# A separate agent files card transactions into the same ledger, tagging each
+# description `[ref:<transaction id>]` so it can recognise its own rows. Three
+# consequences, all deliberate:
+#
+#   * The butler never writes such a tag, so the two agents cannot collide over one.
+#     The feed's idempotency key is invisible from this side by construction.
+#   * The tag is never shown to the family, but "from the bank feed" is, because that
+#     changes what they should do about a row.
+#   * Editing or removing a fed row is allowed — the family asked — but the tool says
+#     what will happen: that agent keeps its own index and will not re-file, so a
+#     removed expense is simply gone until somebody adds it back by hand.
+#
+# `expenses_add` also mentions any same-day, same-amount entry already on the ledger
+# before filing a second one, since the likeliest duplicate is one the feed has already
+# handled. It is a remark, not a refusal: `duplicate_ok` files it anyway.
+#
+# WHY THERE IS AN EXPORT TOOL
+#
+# "Who owes what" is a sentence. "Where did the money go this year" is a chart, and no
+# amount of prose substitutes for it. `expenses_export` writes the ledger to CSV or JSON
+# in the session's working directory so the harness's own filesystem and shell tools can
+# do real analysis on it — group, pivot, plot. One row per person per entry, which
+# groups by category, month, payer or member without reshaping, and carries both exact
+# integer minor units and a pre-signed `spend` column so a total cannot come out
+# backwards.
+#
+# CONFIGURATION
+#
+# ledgerNames  Household member key to the name that member has on the ledger, for the
+#              cases where they differ. Members whose names already match need no entry,
+#              and the common case needs no configuration at all: the butler tries the
+#              household's own aliases first, so "mum" reaches the right person even
+#              though the ledger has never heard the word.
+
+- insert:
+    - id: expenses
+      name: 'dsh-expenses'
+      config: {}
+        # ledgerNames:
+        #   alex: 'Alexander Baker'

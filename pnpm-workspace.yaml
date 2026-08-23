@@ -1,0 +1,14 @@
+packages:
+  - dsh-caldav
+  - dsh-household
+  - dsh-occasions
+  - dsh-mail
+  - dsh-tricount
+  - dsh-calendar
+  - dsh-chores
+  - dsh-mail-tools
+  - dsh-expenses
+  - dsh-channel-discord
+  - dsh-butler-persona
+  - dsh-briefing
+  - dsh-planner

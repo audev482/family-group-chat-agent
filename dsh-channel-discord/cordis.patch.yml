@@ -1,0 +1,46 @@
+# The dsh-channel-discord bundle patch: how the family reaches the butler.
+#
+# This layer inserts ONLY its own row. It needs the agent stack (agents,
+# sessions, llm — present in any profile that runs agents) and the dsh-household
+# row from its own bundle; until those exist the plugin stays dormant.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-channel-discord discord.js
+#
+# Setting up the bot, once:
+#   1. https://discord.com/developers/applications → New Application
+#   2. Bot → Reset Token → copy it. This is a password: treat it like one.
+#   3. Bot → Privileged Gateway Intents → enable MESSAGE CONTENT INTENT.
+#      Without it every message arrives with empty text and the butler is deaf.
+#   4. OAuth2 → URL Generator → scopes `bot`, permissions "Send Messages" and
+#      "Read Message History" → open the URL and add it to your family server.
+#   5. In Discord: User Settings → Advanced → Developer Mode, then right-click
+#      the channel → "Copy Channel ID" for each channel below.
+#
+# tokenRef is a credential REFERENCE, not the token: it names an environment
+# variable your credential provider resolves at each connect. Pasting the token
+# here fails loud at load. Export it under that name (e.g. in the harness .env):
+#   DISCORD_BOT_TOKEN=...
+#
+# channelIds is REQUIRED and is the butler's whole listening scope. An empty list
+# makes it mute rather than making it listen everywhere — deliberately, because a
+# bot with the Message Content intent can read every message in every channel it
+# can see. Give it one channel that exists for the butler.
+#
+# respondTo: 'all'      answers every message in those channels — right for a
+#                       dedicated #butler channel.
+#            'mention'  answers only when @mentioned — right if you point it at a
+#                       general family channel.
+#
+# allowDirectMessages lets a family member DM the butler privately; DMs from
+# anyone not in the roster are ignored either way.
+
+- insert:
+    - id: channel-discord
+      name: 'dsh-channel-discord'
+      config:
+        tokenRef: 'DISCORD_BOT_TOKEN'
+        channelIds: []
+        respondTo: all
+        allowDirectMessages: true
+        typingIndicator: true
+        channelName: discord

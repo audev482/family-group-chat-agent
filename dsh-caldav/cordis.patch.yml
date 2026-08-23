@@ -1,0 +1,40 @@
+# The dsh-caldav bundle patch: the butler's connection to your Nextcloud.
+#
+# This layer inserts ONLY its own row. Patch layers each insert their own rows;
+# a row id inserted by two layers would mount the plugin twice, so a bundle
+# never restates another bundle's rows.
+#
+# The SDKs this seam drives are optional peers — install them alongside:
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-caldav tsdav ical.js
+#
+# passwordRef is a credential REFERENCE, not a password: it names an
+# environment variable that your credential provider resolves at each
+# operation. Pasting the password here fails loud at load, because a secret
+# cannot syntactically be a credential reference.
+#
+# For Nextcloud, generate a dedicated app password rather than using the
+# account password:
+#   Settings → Security → "Devices & sessions" → create new app password
+# then export it under the name below (e.g. in the harness `.env`):
+#   NEXTCLOUD_APP_PASSWORD=xxxxx-xxxxx-xxxxx-xxxxx-xxxxx
+#
+# baseUrl is the server origin. davPath defaults to Nextcloud's
+# `remote.php/dav`, so it only needs setting for a non-Nextcloud server.
+#
+# discoveryTtlMs bounds how long the principal, calendar-home, and collection
+# list are reused before being re-read. Raise it on a stable install; lower it
+# while you are creating calendars and want the butler to notice them.
+
+- insert:
+    - id: caldav
+      name: 'dsh-caldav'
+      config:
+        defaultServer: home
+        discoveryTtlMs: 300000
+        servers:
+          home:
+            baseUrl: 'https://fie.nl.tab.digital'
+            username: 'your-nextcloud-username'
+            passwordRef: 'NEXTCLOUD_APP_PASSWORD'
+            # davPath: 'remote.php/dav'

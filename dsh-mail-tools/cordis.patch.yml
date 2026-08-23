@@ -1,0 +1,38 @@
+# The dsh-mail-tools bundle patch: email as tools the butler can use.
+#
+# Needs the dsh-mail and dsh-household rows (their own bundles), the tool
+# runtime, and the system prompt. Until those services exist this plugin stays
+# dormant via its `inject` list, so install order is free.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-mail-tools
+#
+# Nine tools: mail_mailboxes, mail_search, mail_read, mail_send, mail_reply,
+# mail_forward, mail_flag, mail_move, mail_trash. Anyone talking to the butler
+# can use any of them, including sending.
+#
+# Two things this layer does that are worth knowing:
+#
+# Family names resolve to addresses. "Email Grandma about Sunday" works because
+# dsh-household carries an `email` per member. A name with no address on file is
+# reported rather than guessed at, so a letter never goes to a half-matched
+# nickname.
+#
+# Message bodies arrive at the model inside a boundary marking them as written
+# from outside the household. This is prompt-injection mitigation, and it is
+# placed here because this is where the trust boundary is: Discord channel
+# membership is closed, so the room is the family and is trusted, while email is
+# the one inbound path that crosses that wall. Since these tools can send mail, a
+# message body is otherwise one step from an action. It restricts nothing and
+# gates nobody — it marks where trusted input ends.
+#
+# account         which dsh-mail account to use. Only needed with more than one.
+# searchLimit     default number of results per search.
+# defaultMailbox  folder searched when nobody names one.
+
+- insert:
+    - id: mail-tools
+      name: 'dsh-mail-tools'
+      config:
+        searchLimit: 15
+        defaultMailbox: INBOX
+        # account: family

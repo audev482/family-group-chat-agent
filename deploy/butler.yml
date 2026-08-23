@@ -1,0 +1,527 @@
+---
+# The butler, deployed to the machine you are sitting at.
+#
+#     ansible-playbook -i deploy/inventory.ini deploy/butler.yml --ask-become-pass
+#
+# This is deliberately a single on-host play rather than fleet automation. There is
+# one butler, on one box, in one house — modelling that as a fleet would add an
+# inventory, an SSH path and a bastion to maintain, all to reach localhost.
+#
+# WHY THERE IS NO CRONTAB
+#
+# The obvious way to make an agent do something every morning is cron. This does not,
+# and the reason is worth stating because it looks like an omission.
+#
+# The butler already schedules in-process: `dsh-briefing` and `dsh-planner` each own a
+# timer chain whose next run is computed from the family's wall clock, with the DST
+# transitions covered by tests. What an in-process timer cannot survive is the process
+# dying — and on a single host that is systemd's job, not cron's. `Restart=always`
+# below is the whole of the answer.
+#
+# A cron entry would instead mean a second process model: a fresh `dsh` per run, with
+# no view of the live conversation in the room, its own credential path, its own log
+# stream, and its own copy of the bundle composition to keep in step with this play.
+# Two artifacts where one will do, and the second one silently rots the first time
+# somebody adds a plugin here and forgets the crontab.
+
+- name: Deploy the family butler
+  hosts: butler
+  become: true
+
+  vars_files:
+    - secrets.yml
+
+  tasks:
+    # ---------------------------------------------------------------- preflight
+    # Fail on the things that would otherwise fail later and less clearly.
+
+    - name: Require a Debian-family host
+      ansible.builtin.assert:
+        that: ansible_os_family == 'Debian'
+        fail_msg: >-
+          This play installs Node through NodeSource's apt repository, so it expects
+          Debian or Ubuntu. On another distribution, install Node {{ node_major }} and
+          pnpm {{ pnpm_version }} yourself and then run this play with
+          --skip-tags runtime.
+        success_msg: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    - name: Require every secret to be set
+      ansible.builtin.assert:
+        that: vars[item] | default('') | trim | length > 0
+        fail_msg: >-
+          {{ item }} is empty in deploy/secrets.yml. The butler cannot work without it,
+          and writing a blank value would turn a missing credential into a puzzling
+          runtime error instead of this message. See deploy/secrets.example.yml.
+      loop:
+        - DEEPSEEK_API_KEY
+        - NEXTCLOUD_APP_PASSWORD
+        - YAHOO_APP_PASSWORD
+        - DISCORD_BOT_TOKEN
+        - TRICOUNT_TOKEN
+      loop_control:
+        label: "{{ item }}"
+
+    # The butler needs to know where to speak and who it speaks for. Both have no
+    # sensible default, so they are checked here rather than discovered by silence.
+    - name: Require the settings with no possible default
+      ansible.builtin.assert:
+        that: item.value | default('') | trim | length > 0
+        fail_msg: "{{ item.name }} is not set in deploy/group_vars/all.yml — {{ item.why }}"
+      loop:
+        - name: discord.channel_id
+          value: "{{ discord.channel_id }}"
+          why: >-
+            the butler would have nowhere to post the morning briefing or to open a
+            planning conversation.
+        - name: nextcloud.username
+          value: "{{ nextcloud.username }}"
+          why: an app password alone does not say whose account it belongs to.
+        - name: mail.address
+          value: "{{ mail.address }}"
+          why: the butler would not know which mailbox is the family's.
+      loop_control:
+        label: "{{ item.name }}"
+
+    # ------------------------------------------------------------------ runtime
+
+    - name: Install the packages needed to add a repository and copy the source
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - git
+          # rsync copies the workspace without a collection dependency; python3-debian
+          # is what deb822_repository needs to write the NodeSource source list.
+          - rsync
+          - python3-debian
+          # bubblewrap is what the harness's shell and filesystem sandbox uses to
+          # confine the agent's own tool calls. Without it every shell call fails
+          # closed with SANDBOX_UNAVAILABLE — safe, but it silently removes the
+          # analysis capability, so it is a hard requirement rather than an extra.
+          - bubblewrap
+          # Default-deny inbound, and unattended security patching.
+          - nftables
+          - unattended-upgrades
+        state: present
+        update_cache: true
+      tags: runtime
+
+    - name: Ensure the keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+      tags: runtime
+
+    - name: Add the NodeSource repository
+      ansible.builtin.deb822_repository:
+        name: nodesource
+        types: [deb]
+        uris: "https://deb.nodesource.com/node_{{ node_major }}.x"
+        suites: [nodistro]
+        components: [main]
+        signed_by: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+        state: present
+      tags: runtime
+
+    - name: Install Node
+      ansible.builtin.apt:
+        name: "nodejs"
+        state: present
+        update_cache: true
+      tags: runtime
+
+    # Pinned rather than latest: pnpm resolves the workspace, and a silent major bump
+    # here would change how thirteen packages link to each other.
+    - name: Install pnpm
+      ansible.builtin.command:
+        cmd: "npm install --global pnpm@{{ pnpm_version }}"
+      args:
+        creates: "/usr/lib/node_modules/pnpm/package.json"
+      tags: runtime
+
+    - name: Install the dsh launcher
+      ansible.builtin.command:
+        cmd: "npm install --global @deepseek-ai/dsh@{{ dsh_version }}"
+      args:
+        creates: "/usr/lib/node_modules/@deepseek-ai/dsh/package.json"
+      tags: runtime
+
+    - name: Find the dsh launcher on the host
+      ansible.builtin.command:
+        cmd: "command -v dsh"
+      register: dsh_which
+      changed_when: false
+      failed_when: dsh_which.rc != 0
+      tags: runtime
+
+    - name: Remember where the launcher is
+      ansible.builtin.set_fact:
+        dsh_binary: "{{ dsh_which.stdout | trim }}"
+
+    # ------------------------------------------------------------------ account
+    # A network service that reads the family's email and writes their calendar has
+    # no business being root.
+
+    - name: Create the butler's system account
+      ansible.builtin.user:
+        name: "{{ butler_user }}"
+        system: true
+        create_home: false
+        home: "{{ butler_home }}"
+        shell: /usr/sbin/nologin
+        state: present
+
+    - name: Create the directories the butler owns
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ butler_user }}"
+        group: "{{ butler_group }}"
+        mode: "0750"
+      loop:
+        - "{{ butler_home }}"
+        - "{{ butler_workspace }}"
+        - "{{ butler_source }}"
+
+    # ------------------------------------------------------------------- source
+
+    # rsync rather than ansible.posix.synchronize, which would need a galaxy install
+    # and break the one-command promise. `--itemize-changes` makes idempotency real:
+    # no output means nothing moved, so the build below is skipped too.
+    #
+    # node_modules and lib are excluded because they are built on the host — copying a
+    # macOS or developer-laptop node_modules onto a Linux server is how native modules
+    # break in ways that take an evening to diagnose.
+    - name: Copy the butler workspace to the host
+      ansible.builtin.command:
+        argv:
+          - rsync
+          - --archive
+          - --delete
+          - --itemize-changes
+          - --exclude=node_modules
+          - --exclude=lib
+          - --exclude=.git
+          - --exclude=deploy/secrets.yml
+          - "{{ playbook_dir }}/../"
+          - "{{ butler_source }}/"
+      register: source_sync
+      changed_when: source_sync.stdout | trim | length > 0
+      notify: Restart the butler
+
+    - name: Take ownership of the copied source
+      ansible.builtin.file:
+        path: "{{ butler_source }}"
+        owner: "{{ butler_user }}"
+        group: "{{ butler_group }}"
+        recurse: true
+        state: directory
+
+    # Build as the butler, not as root, so nothing in node_modules ends up owned by a
+    # user the service cannot read as.
+    # Deliberately not a handler. Handlers run at the end of the play, but the profile
+    # install and the build verification below both depend on this having already
+    # happened, so deferring it would invert the order.
+    - name: Install workspace dependencies and build every package  # noqa: no-handler
+      become: true
+      become_user: "{{ butler_user }}"
+      ansible.builtin.command:
+        cmd: pnpm install --frozen-lockfile=false
+        chdir: "{{ butler_source }}"
+      environment:
+        HOME: "{{ butler_home }}"
+      when: source_sync.changed | default(true)
+      changed_when: true
+      notify: Restart the butler
+
+    - name: Verify the packages actually built
+      ansible.builtin.stat:
+        path: "{{ butler_source }}/{{ item }}/lib/index.js"
+      register: built
+      failed_when: not built.stat.exists
+      loop: "{{ butler_packages }}"
+      loop_control:
+        label: "{{ item }}"
+
+    # ---------------------------------------------------------------- credentials
+    # Readable by the butler, nobody else, and never in the source tree.
+
+    - name: Create the environment directory
+      ansible.builtin.file:
+        path: "{{ butler_env_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    # 0400 root:root, NOT group-readable. systemd reads EnvironmentFile as root during
+    # unit setup and only then drops to the butler user, so the service works while the
+    # butler account cannot read its own credential file. That closes the easiest
+    # exfiltration path — a shell tool call running `cat` on it.
+    - name: Write the environment file
+      ansible.builtin.template:
+        src: butler.env.j2
+        dest: "{{ butler_env_dir }}/butler.env"
+        owner: root
+        group: root
+        mode: "0400"
+      no_log: true
+      notify: Restart the butler
+
+    # ------------------------------------------------------------------- profile
+    # Each of the thirteen packages is its own bundle, contributing its plugin rows
+    # when it becomes a dependency of the profile. `dsh plugin` forwards to pnpm in
+    # the profile directory and then reconciles the layer list from what is actually
+    # installed.
+
+    - name: Add every butler bundle to the profile
+      become: true
+      become_user: "{{ butler_user }}"
+      ansible.builtin.command:
+        cmd: >-
+          dsh plugin --profile {{ butler_profile }}
+          add {{ butler_packages | map('regex_replace', '^', butler_source + '/') | join(' ') }}
+      environment:
+        HOME: "{{ butler_home }}"
+        DSH_HOME: "{{ butler_home }}"
+      register: profile_add
+      changed_when: true
+      notify: Restart the butler
+
+    - name: Read back the profile manifest
+      ansible.builtin.slurp:
+        src: "{{ butler_home }}/profiles/{{ butler_profile }}/package.json"
+      register: profile_manifest
+
+    - name: Count the bundles that joined the layer stack
+      ansible.builtin.set_fact:
+        installed_bundles: >-
+          {{ (profile_manifest.content | b64decode | from_json).dsh.profile.bundles }}
+
+    # A package whose manifest does not declare `dsh.bundle.patch` installs as an
+    # ordinary dependency and contributes no plugin rows — so it would be present and
+    # silently inert. Counting the layer stack is what catches that.
+    - name: Fail if a bundle did not register
+      ansible.builtin.assert:
+        that: installed_bundles | length >= butler_packages | length
+        fail_msg: >-
+          Only {{ installed_bundles | length }} bundles are in the profile layer stack,
+          expected at least {{ butler_packages | length }}. Installed:
+          {{ installed_bundles | join(', ') }}
+        success_msg: "{{ installed_bundles | length }} bundles active."
+
+
+    # The profile's own patch layer is applied after every bundle layer, so this is
+    # where the household's settings override what each package ships as a default.
+    - name: Write the household configuration
+      become: true
+      become_user: "{{ butler_user }}"
+      ansible.builtin.template:
+        src: profile.patch.yml.j2
+        dest: "{{ butler_home }}/profiles/{{ butler_profile }}/cordis.patch.yml"
+        owner: "{{ butler_user }}"
+        group: "{{ butler_group }}"
+        mode: "0640"
+      notify: Restart the butler
+
+    # ------------------------------------------------------------------- firewall
+    # The butler listens on nothing, so a default-drop input policy costs it nothing
+    # and removes the host's inbound surface along with it.
+
+    - name: Install the firewall ruleset
+      ansible.builtin.template:
+        src: nftables.conf.j2
+        dest: /etc/nftables.conf
+        owner: root
+        group: root
+        mode: "0600"
+        # Refuse to install a ruleset the kernel would reject — a syntax error here
+        # would otherwise leave the host with no firewall at all after a reboot.
+        validate: "/usr/sbin/nft -c -f %s"
+      notify: Reload the firewall
+
+    - name: Enable the firewall
+      ansible.builtin.systemd_service:
+        name: nftables
+        enabled: true
+        state: started
+
+    - name: Warn when SSH is open to the whole internet
+      ansible.builtin.debug:
+        msg: >-
+          admin_cidrs is empty, so port {{ ssh_port }} accepts connections from
+          anywhere. On a public VPC, set admin_cidrs in group_vars/all.yml to your own
+          address or the VPC range.
+      when: admin_cidrs | default([]) | length == 0
+
+    - name: Enable unattended security upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          // {{ ansible_managed }}
+          // An agent host that reaches the public internet and runs a model on
+          // untrusted input should not be a month behind on kernel patches.
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    # -------------------------------------------------------------------- service
+
+    - name: Install the systemd unit
+      ansible.builtin.template:
+        src: butler.service.j2
+        dest: /etc/systemd/system/dsh-butler.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart the butler
+
+    - name: Enable and start the butler
+      ansible.builtin.systemd_service:
+        name: dsh-butler
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    # --------------------------------------------------------------- verification
+    # "Started" only means systemd forked it. A service that crashes on a bad
+    # credential is restarted forever and would otherwise look healthy from here.
+
+    - name: Give the butler a moment to connect to Discord
+      ansible.builtin.pause:
+        seconds: 15
+
+    # The systemd module cannot report NRestarts, and that counter is the point: a
+    # service crash-looping on a bad credential looks 'active' in the instant between
+    # restarts.
+    - name: Read the service state  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: systemctl show dsh-butler --property=ActiveState,SubState,NRestarts --value
+      register: service_state
+      changed_when: false
+
+    - name: Fail if the butler is not running, or is restarting in a loop
+      ansible.builtin.assert:
+        that:
+          - "'active' in service_state.stdout_lines[0]"
+          - service_state.stdout_lines[2] | int < 3
+        fail_msg: >-
+          The butler is {{ service_state.stdout_lines[0] }}
+          ({{ service_state.stdout_lines[1] }}) after
+          {{ service_state.stdout_lines[2] }} restarts. Read the reason with:
+          journalctl -u dsh-butler -n 50 --no-pager
+        success_msg: "The butler is {{ service_state.stdout_lines[0] }}."
+
+    # --------------------------------------------------------------- hardening checks
+    # Hardening that silently failed is worse than none, because it is believed. Each
+    # of these asserts an outcome rather than the presence of a directive.
+
+    - name: Measure the service's exposure
+      ansible.builtin.command:
+        cmd: systemd-analyze security dsh-butler --no-pager
+      register: exposure
+      changed_when: false
+      failed_when: false
+
+    - name: Extract the exposure score
+      ansible.builtin.set_fact:
+        exposure_score: >-
+          {{ (exposure.stdout
+              | regex_search('exposure level for dsh-butler.*?([0-9]+\.[0-9]+)', '\1')
+              | first | default('10.0')) | float }}
+
+    # systemd-analyze scores 0 (most confined) to 10. A default unit scores about 9.6;
+    # anything above 4 here means a directive above did not apply.
+    - name: Require the confinement to have actually applied
+      ansible.builtin.assert:
+        that: exposure_score | float < 4.0
+        fail_msg: >-
+          systemd reports an exposure level of {{ exposure_score }} for dsh-butler,
+          which means the confinement in the unit did not take effect. Inspect it with:
+          systemd-analyze security dsh-butler
+        success_msg: >-
+          systemd exposure level {{ exposure_score }} — lower is better, and an
+          unhardened unit scores about 9.6.
+
+    # The inner sandbox is the boundary that matters most, and the syscall filter above
+    # is exactly the kind of change that can disable it without any visible error. So
+    # confirm bubblewrap can still do what the agent's shell tool needs it to do,
+    # running as the butler user under the same confinement.
+    - name: Confirm the agent's shell sandbox can still start
+      become: true
+      become_user: "{{ butler_user }}"
+      ansible.builtin.command:
+        cmd: >-
+          bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent
+          /bin/true
+      register: bwrap_check
+      changed_when: false
+      failed_when: false
+
+    - name: Require the shell sandbox to work
+      ansible.builtin.assert:
+        that: bwrap_check.rc == 0
+        fail_msg: >-
+          bubblewrap cannot create the namespaces the agent's shell sandbox needs
+          (exit {{ bwrap_check.rc }}): {{ bwrap_check.stderr | default('') | trim }}.
+          Every shell tool call will fail closed with SANDBOX_UNAVAILABLE, so the
+          butler keeps working but loses the ability to analyse an expense
+          export. Most likely causes: unprivileged user namespaces disabled
+          (sysctl kernel.unprivileged_userns_clone), or RestrictNamespaces in
+          the unit being tightened past user/pid/mnt.
+        success_msg: "The agent's shell sandbox starts, so tool calls are confined."
+
+    # The point of locking the credential file: the account the agent's tools run as
+    # must not be able to read it.
+    - name: Confirm the butler cannot read its own credential file
+      become: true
+      become_user: "{{ butler_user }}"
+      ansible.builtin.command:
+        cmd: "cat {{ butler_env_dir }}/butler.env"
+      register: cred_read
+      changed_when: false
+      failed_when: false
+
+    - name: Require the credential file to be unreadable by the butler
+      ansible.builtin.assert:
+        that: cred_read.rc != 0
+        fail_msg: >-
+          The {{ butler_user }} account can read the credential file, so a shell
+          tool call could print every secret in it. It should be 0400 root:root —
+          systemd reads it as root before dropping privileges.
+        success_msg: "The credential file is readable only by root."
+
+    - name: Report where to look next
+      ansible.builtin.debug:
+        msg:
+          - "Butler running as {{ butler_user }}, source at {{ butler_source }}."
+          - "Profile: {{ butler_home }}/profiles/{{ butler_profile }}"
+          - "Workspace (where expense exports land): {{ butler_workspace }}"
+          - "Follow it with: journalctl -u dsh-butler -f"
+          - "Say hello in the Discord channel to check it answers."
+          - >-
+            {{ 'Set TRICOUNT_APP_ID and TRICOUNT_PUBLIC_KEY in secrets.yml from the
+            tricount/device journal line, then re-run, so the ledger identity survives
+            restarts.' if (TRICOUNT_APP_ID | default('') | trim | length == 0) else
+            'Tricount device identity is pinned.' }}
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    - name: Restart the butler
+      ansible.builtin.systemd_service:
+        name: dsh-butler
+        state: restarted
+
+    - name: Reload the firewall
+      ansible.builtin.systemd_service:
+        name: nftables
+        state: reloaded

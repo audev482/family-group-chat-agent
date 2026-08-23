@@ -1,0 +1,25 @@
+---
+# The thirteen bundles, in dependency order.
+#
+# The order matters less than it looks — each plugin declares what it injects and
+# stays dormant until those services exist, so a wrong order costs nothing. It is
+# kept in dependency order anyway because it documents the architecture: transports
+# first, then the meaning packages built on them, then the things that speak.
+butler_packages:
+  # Transports: they know a protocol and nothing about the family.
+  - dsh-caldav
+  - dsh-mail
+  - dsh-tricount
+  # Identity and arithmetic: no I/O of their own.
+  - dsh-household
+  - dsh-occasions
+  # Meaning: the tools the butler actually calls.
+  - dsh-calendar
+  - dsh-chores
+  - dsh-mail-tools
+  - dsh-expenses
+  # Voice, room, and the two things that speak without being asked.
+  - dsh-butler-persona
+  - dsh-channel-discord
+  - dsh-briefing
+  - dsh-planner

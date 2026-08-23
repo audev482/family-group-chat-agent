@@ -1,0 +1,140 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=The family butler (DeepSeek Harness)
+Documentation=file://{{ butler_source }}/README.md
+Documentation=file://{{ butler_source }}/HARDENING.md
+# The butler's first action on a cold boot is to reach Nextcloud, Yahoo and Discord,
+# so waiting for a routable network turns a guaranteed first-minute failure into a
+# clean start.
+After=network-online.target
+Wants=network-online.target
+
+# Never stop trying. A Nextcloud outage or an expired token should leave the butler
+# retrying rather than leaving the family with a silence they have to notice for
+# themselves.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User={{ butler_user }}
+Group={{ butler_group }}
+
+# The sandbox's writable root. Pinned here and passed to the sandbox policy as the
+# same path, so the kernel-enforced boundary and the agent's own idea of its
+# workspace cannot drift apart. This is also where expenses_export writes.
+WorkingDirectory={{ butler_workspace }}
+
+# Read by systemd as root, BEFORE the process drops to {{ butler_user }} — which is
+# why the file itself is 0400 root:root and the butler cannot read it. See HARDENING.md
+# for why that is only half the problem.
+EnvironmentFile={{ butler_env_dir }}/butler.env
+
+# Resolved on the host at deploy time rather than assumed: an npm global prefix is not
+# the same path on every distribution.
+ExecStart={{ dsh_binary }} --profile {{ butler_profile }}
+
+# THIS LINE IS THE SCHEDULER.
+#
+# The butler's morning briefing and its Thursday planning pass are in-process timers,
+# computed from the family's own wall clock. An in-process timer survives everything
+# except the process dying, which is exactly the gap systemd fills — so liveness lives
+# here and there is no crontab to keep in step with the plugin list.
+Restart=always
+RestartSec=10s
+
+# The process holds itself open on the Discord gateway connection. If that is ever
+# removed, this unit needs a different shape — the timers deliberately do not keep the
+# event loop alive on their own.
+
+# ===========================================================================
+# CONFINEMENT
+#
+# The butler reads the family's mail and writes their calendar, and it runs a model
+# that takes instructions from outside the house. It should reach the network, its own
+# two directories, and nothing else on the machine.
+#
+# Everything below is checked by `systemd-analyze security dsh-butler`, and the deploy
+# asserts the resulting exposure score rather than trusting this comment.
+# ===========================================================================
+
+# --- privilege -------------------------------------------------------------
+# The butler needs no capabilities at all: it binds no privileged port, owns no
+# device, and changes no system state. An empty bounding set means a kernel bug in
+# something it calls cannot be escalated through a capability it never needed.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+UMask=0077
+
+# --- filesystem ------------------------------------------------------------
+# Read-only everywhere except the two paths named. Note this is the *outer* boundary:
+# the agent's own shell and filesystem tools are separately confined by bubblewrap and
+# Landlock, which is what stops a tool call reading this process's memory or /proc.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths={{ butler_home }} {{ butler_workspace }}
+
+# --- kernel and system state ----------------------------------------------
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RemoveIPC=true
+
+# --- other processes -------------------------------------------------------
+# The butler cannot see another process's /proc, so a co-tenant's environment — and
+# so its credentials — is invisible to it. `ProcSubset=pid` additionally hides the
+# kernel's own /proc files it has no use for.
+ProtectProc=invisible
+ProcSubset=pid
+
+# --- network ---------------------------------------------------------------
+# Only the families an HTTPS client and a unix socket need. AF_NETLINK is deliberately
+# absent: it is the usual route to interface and routing enumeration.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# --- syscalls --------------------------------------------------------------
+# @system-service is the standard baseline for a long-running service. @sandbox is
+# added because it is what bubblewrap and Landlock themselves need — WITHOUT it the
+# agent's sandbox fails closed and every shell tool call returns SANDBOX_UNAVAILABLE,
+# which is safe but silently removes the analysis capability.
+SystemCallFilter=@system-service @sandbox
+SystemCallFilter=~@privileged ~@resources ~@obsolete ~@cpu-emulation
+SystemCallArchitectures=native
+
+# --- namespaces ------------------------------------------------------------
+# NOT locked down, and this is deliberate. bubblewrap confines the agent's shell by
+# creating user, mount and pid namespaces, so denying them here would disable the
+# inner sandbox in the name of hardening the outer one — a straight downgrade, because
+# the inner boundary is the one standing between an injected instruction and this
+# process's credentials.
+#
+# For the same reason PrivateUsers is NOT set: it would deny bubblewrap the user
+# namespace it needs.
+RestrictNamespaces=user pid mnt
+
+# Node's JIT needs writable-executable pages, so this cannot be enabled. Stated rather
+# than omitted, since its absence otherwise looks like an oversight.
+MemoryDenyWriteExecute=false
+
+# --- resources -------------------------------------------------------------
+# A runaway model loop or a pathological export should not take the machine down with
+# it. Generous enough that ordinary work never notices.
+MemoryMax={{ butler_memory_max }}
+TasksMax={{ butler_tasks_max }}
+
+# Journal only. The transcripts and the ledger are the durable records; duplicating
+# them into a second log would be a second copy of the family's private life.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dsh-butler
+
+[Install]
+WantedBy=multi-user.target

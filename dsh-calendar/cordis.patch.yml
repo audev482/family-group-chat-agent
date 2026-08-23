@@ -1,0 +1,27 @@
+# The dsh-calendar bundle patch: the family calendar as agent tools.
+#
+# Needs the dsh-caldav and dsh-household rows (their own bundles) and the tool
+# runtime, which every agent-running profile already mounts. Until those services
+# exist this plugin stays dormant via its `inject` list, so install order is free.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-calendar
+#
+# Which calendar a request goes to is decided by dsh-household, not here:
+# a request naming a person uses that person's `calendar`, and everything else
+# uses `sharedCalendar`. Nothing needs configuring below for the common case.
+#
+# agendaDays        how many days "what's on" covers when nobody says.
+# earliestHour /    the window the butler will offer when hunting for free time.
+# latestHour        Set these to the hours your family actually books things in.
+# server            only needed when dsh-caldav has more than one server and
+#                   no defaultServer.
+
+- insert:
+    - id: calendar
+      name: 'dsh-calendar'
+      config:
+        agendaDays: 1
+        defaultEventMinutes: 60
+        earliestHour: 8
+        latestHour: 21
+        # server: home

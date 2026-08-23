@@ -1,0 +1,38 @@
+{
+  "name": "dsh-household",
+  "description": "Household roster seam for DeepSeek Harness: ctx.household resolves spoken names, chore tags, and Discord ids onto one family member so calendar, chore, and channel plugins share one set of names",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepare": "tsdown"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  }
+}

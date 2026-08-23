@@ -1,0 +1,49 @@
+{
+  "name": "dsh-briefing",
+  "description": "Daily household digest for DeepSeek Harness: posts one deterministic morning briefing (today's agenda plus overdue and upcoming chores) into the family's Discord room via ctx.discord",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepare": "tsdown"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "dsh-caldav": "workspace:*",
+    "dsh-calendar": "workspace:*",
+    "dsh-channel-discord": "workspace:*",
+    "dsh-chores": "workspace:*",
+    "dsh-household": "workspace:*",
+    "dsh-mail": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "dsh-mail": {
+      "optional": true
+    }
+  }
+}

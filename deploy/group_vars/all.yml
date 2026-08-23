@@ -1,0 +1,110 @@
+---
+# Non-secret settings for the butler host. Secrets live in secrets.yml — see
+# secrets.example.yml — so this file is safe to commit and to read over someone's
+# shoulder.
+
+# --- where things live ------------------------------------------------------
+# One root for everything the butler owns, matching the harness's own design: it
+# keeps all user data under a single home, so a backup is one directory and a
+# teardown is one `rm -rf`.
+butler_user: butler
+butler_group: butler
+butler_home: /var/lib/dsh-butler
+butler_source: /opt/dsh-butler
+butler_env_dir: /etc/dsh-butler
+butler_profile: butler
+
+# The session's working directory, and so where `expenses_export` writes the files
+# the butler then analyses with its own shell and filesystem tools.
+butler_workspace: /var/lib/dsh-butler/workspace
+
+# --- hardening --------------------------------------------------------------
+# Who may reach SSH. EMPTY MEANS THE WHOLE INTERNET — on a public VPC, set this to
+# your own address or the VPC range. The play warns loudly when it is empty, because
+# an agent host with SSH open to the world has one keypair between the internet and a
+# shell on the box that holds the family's mail credentials.
+#
+#   admin_cidrs: ["203.0.113.4/32", "10.0.0.0/8"]
+admin_cidrs: []
+ssh_port: 22
+
+# Ceilings, so a runaway model loop or a pathological export cannot take the machine
+# down with it. Generous enough that ordinary work never reaches them.
+butler_memory_max: "2G"
+butler_tasks_max: 512
+
+# The kernel-enforced boundary around the agent's OWN tool calls, which is a different
+# thing from the systemd confinement around the process. `workspace-write` lets the
+# shell and filesystem tools work inside the workspace — which is what makes
+# expenses_export useful — and nothing outside it.
+#
+# `danger-full-access` removes that boundary entirely. Do not set it on a host that
+# reads mail: an instruction arriving in an email would then be running unconfined.
+sandbox_mode: workspace-write
+
+# --- versions ---------------------------------------------------------------
+# The harness declares `node: ^22.19.0 || >=24.0.0`. 22 is the current LTS, so it is
+# the safer of the two for a box nobody wants to think about.
+node_major: 22
+pnpm_version: "11.7.0"
+
+# Pinned to the version our packages declare as a peer. An unpinned CLI would drift
+# out of step with the bundles on some later, unrelated run of this play.
+dsh_version: "0.1.1-rc.2"
+
+# --- the household ----------------------------------------------------------
+# This is what makes the butler *this* family's. Everything below is written into
+# the profile's own patch layer, which is applied after every bundle layer, so it
+# overrides the defaults each package ships.
+household:
+  family_name: "The Bakers"
+  timezone: "America/New_York"
+  # Calendar and task collection display names, exactly as the Nextcloud UI shows them.
+  shared_calendar: "Family"
+  chores_calendar: "Household"
+  members:
+    alex:
+      display_name: "Alex"
+      aliases: ["dad"]
+      role: adult
+      birthday: "1986-04-11"
+      discord_user_id: ""
+      email: ""
+    sam:
+      display_name: "Sam"
+      aliases: ["mum", "mom"]
+      role: adult
+      birthday: "1988-09-02"
+      discord_user_id: ""
+      email: ""
+  # Dates that belong to the family rather than to one person.
+  occasions:
+    wedding:
+      name: "Wedding anniversary"
+      date: "2014-09-20"
+
+# --- the services the butler talks to --------------------------------------
+nextcloud:
+  server: "https://fie.nl.tab.digital"
+  username: ""            # your Nextcloud login
+
+mail:
+  # The hosts and ports come from the `yahoo` preset the mail package ships, so they
+  # are deliberately not repeated here — a typo in a port is a connection failure with
+  # no obvious cause. Change the preset in the template if the provider changes.
+  address: ""             # the family mailbox address
+
+discord:
+  # The one room the butler lives in. Both the briefing and the planner need it, and
+  # neither has a default — a butler posting into a guessed channel is worse than one
+  # that says nothing.
+  channel_id: ""
+
+# --- the daily rhythm -------------------------------------------------------
+briefing_time: "07:30"
+planning_time: "09:00"
+# 4 = Thursday. Late enough that the weekend is concrete, early enough to shape it.
+planning_weekday: 4
+# Ask once more, then go quiet. A butler that chases gets the channel muted, and then
+# the morning briefing is lost too.
+max_nudges: 1

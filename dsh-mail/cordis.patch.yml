@@ -1,0 +1,49 @@
+# The dsh-mail bundle patch: the family mailbox over plain IMAP and SMTP.
+#
+# Needs the credentials row (present in every profile). Install with the mail
+# libraries, which are optional peers so a calendar-only household never pays
+# for them:
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-mail imapflow nodemailer mailparser
+#
+# Setting up Yahoo, once:
+#   1. https://login.yahoo.com/account/security → "Generate app password"
+#   2. Name it something you will recognise later (e.g. "family butler") and copy
+#      the 16-character password. It is shown once.
+#   3. Export it under the name in passwordRef below:
+#        YAHOO_APP_PASSWORD=abcdabcdabcdabcd
+#
+# Yahoo will refuse your ordinary account password over IMAP once two-factor
+# authentication is on — an app password is the only way in, and this is the
+# single most common reason a first connection fails with "invalid credentials".
+#
+# The `preset` fills in host names and ports. Also available: gmail, outlook,
+# icloud, fastmail. For anything else, give imapHost/imapPort/smtpHost/smtpPort
+# instead of a preset.
+#
+# passwordRef names a credential; it is NOT the password. Putting the password
+# here fails loud at load rather than quietly ending up in your config history.
+#
+# address       the family address. Mail is sent FROM this and read here.
+# displayName   what recipients see in their "from" column.
+# idleTtlMs     how long an IMAP connection is kept warm between questions.
+#               Longer is faster; shorter means a rotated password takes effect
+#               sooner. Five minutes is a reasonable middle.
+# maxBodyChars  longest message text handed to the model before it is cut short.
+#               Newsletters and long threads would otherwise crowd out the rest
+#               of the conversation.
+
+- insert:
+    - id: mail
+      name: 'dsh-mail'
+      config:
+        defaultAccount: family
+        accounts:
+          family:
+            address: 'your-family@yahoo.com'
+            displayName: 'The Family'
+            passwordRef: 'YAHOO_APP_PASSWORD'
+            preset: yahoo
+        idleTtlMs: 300000
+        timeoutMs: 20000
+        maxBodyChars: 8000

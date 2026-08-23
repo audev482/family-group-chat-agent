@@ -1,0 +1,41 @@
+{
+  "name": "dsh-expenses",
+  "description": "The family's shared expenses as tools the butler can call: read and analyse the ledger, add, edit, refund, and remove entries",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepare": "tsdown"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-tools": "0.1.1-rc.2",
+    "dsh-household": "workspace:*",
+    "dsh-tricount": "workspace:*"
+  }
+}

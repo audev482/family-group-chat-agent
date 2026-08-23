@@ -1,0 +1,51 @@
+# The dsh-occasions bundle patch: what is coming up, and what it is worth.
+#
+# Needs the dsh-household row (its own bundle) and the tool runtime. Until those
+# services exist this plugin stays dormant via its `inject` list, so install
+# order is free.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-occasions
+#
+# Registers one tool, `occasions_upcoming`, and no prompt context. Restating the
+# next month of the calendar on every turn would spend tokens on every passing
+# question to serve the rare planning conversation, so the butler looks it up when
+# it is relevant instead.
+#
+# US federal holidays are computed from their statutory rules — the third Monday
+# in January, the last Monday in May — so there is no feed to poll and no table to
+# maintain, and the answers are as good in 2035 as they are today. The weekend
+# observation rule is applied too (a Saturday holiday is observed on the Friday
+# before, a Sunday one on the Monday after), because that is what decides whether
+# a holiday is actually a long weekend.
+#
+# Birthdays are read from the members in the dsh-household config, because a
+# birthday belongs to a person. Anniversaries and other household-wide dates are
+# configured as `occasions` on dsh-household for the same reason in reverse: a
+# wedding anniversary belongs to the family, not to either partner, so putting it
+# on a member would force an arbitrary choice. Either `MM-DD` or `YYYY-MM-DD`
+# works there; giving the year lets the butler know it is the tenth rather than
+# just another one.
+#
+# The `occasions` key below is an override for that household config and is
+# normally left out entirely — the same relationship dsh-chores has with
+# `choresCalendar`.
+#
+# workdays   which weekdays the adults work, 0 Sunday through 6 Saturday. This is
+#            what defines a weekend, so a household working Monday to Thursday
+#            should say so and get three-day weekends counted correctly.
+# maxLeave   most days of leave to consider when looking for a bridge. Three, so
+#            the gap between Christmas and New Year is still found; beyond that it
+#            stops being a bridge and becomes booking a holiday, which is not
+#            something the butler should infer from a calendar.
+
+- insert:
+    - id: occasions
+      name: 'dsh-occasions'
+      config:
+        workdays: [1, 2, 3, 4, 5]
+        maxLeave: 3
+        federalHolidays: true
+        # occasions:            # overrides dsh-household's `occasions`
+        #   wedding:
+        #     name: 'Wedding anniversary'
+        #     date: '2014-09-20'

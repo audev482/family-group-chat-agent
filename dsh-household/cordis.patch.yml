@@ -1,0 +1,77 @@
+# The dsh-household bundle patch: who the family is.
+#
+# Install this one first; every other butler package reads names from it.
+#
+#   dsh plugin --profile <name> add /path/to/dsh-butler/dsh-household
+#
+# This is the file a household edits first. Every other butler package reads
+# names from here, so a person spelled once is a person everywhere: the Discord
+# channel attributes their messages, the chore tools tag their VTODOs, and the
+# persona teaches the model their nicknames.
+#
+# The roster is for ATTRIBUTION, not access control — everyone in a home has the
+# same access, and nothing in this seam gates a capability.
+#
+# Layers each insert only their own rows; a row id inserted by two layers would
+# mount the plugin twice, so this bundle never restates another bundle's rows.
+#
+# Field notes:
+#   timezone        IANA name. Every date the butler speaks or writes uses it.
+#   members.<key>   `key` is the stable id tools echo back; keep it lowercase.
+#   aliases         Every spoken name for that person. Add the ones your family
+#                   actually says — "mum", "mama", "dad" — because these are
+#                   what people type. A name claimed by two members fails loud
+#                   at load rather than misfiling someone's appointment.
+#   tag             The VTODO CATEGORIES value carrying chore assignment. It is
+#                   authoritative because it is the only assignment channel a
+#                   human can edit in the Nextcloud Tasks UI. Defaults to
+#                   displayName.
+#   discordUserId   Enable Developer Mode in Discord, right-click a member,
+#                   "Copy User ID".
+#   email           Optional. Mirrored into VTODO ATTENDEE for other CalDAV
+#                   clients; never read back as authority.
+#   calendar        Display name of that person's own CalDAV calendar.
+#   role            adult | child. Informational: it shapes tone, not access.
+#
+# sharedCalendar / choresCalendar name the collections on your Nextcloud that
+# hold family events and household VTODOs. Both must already exist — create
+# them in Nextcloud Calendar / Tasks, and make sure the chores collection has
+# VTODO enabled (any list created by the Tasks app does).
+
+- insert:
+    - id: household
+      name: 'dsh-household'
+      config:
+        familyName: 'the household'
+        timezone: 'Europe/Amsterdam'
+        sharedCalendar: 'Family'
+        choresCalendar: 'Household'
+        members:
+          # Replace this example roster with your own family.
+          alex:
+            displayName: 'Alex'
+            aliases: ['dad', 'papa']
+            role: adult
+            calendar: 'Alex'
+            # discordUserId: '000000000000000000'
+            # email: 'alex@example.org'
+          sam:
+            displayName: 'Sam'
+            aliases: ['mum', 'mom', 'mama']
+            role: adult
+            calendar: 'Sam'
+            # discordUserId: '000000000000000000'
+          robin:
+            displayName: 'Robin'
+            aliases: ['rob']
+            role: child
+            # discordUserId: '000000000000000000'
+        # Recurring dates belonging to the household rather than to one person.
+        # A birthday goes on a member; a wedding anniversary does not belong to
+        # either partner, so it lives here. `MM-DD` or `YYYY-MM-DD` — give the
+        # year and the butler knows it is the tenth rather than just another one.
+        occasions: {}
+        # occasions:
+        #   wedding:
+        #     name: 'Wedding anniversary'
+        #     date: '2014-09-20'
