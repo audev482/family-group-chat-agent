@@ -303,7 +303,7 @@ const TRIAGE_PROMPT = `Morning mail triage. Use your mail tools to list the unre
 - DELETE: marketing, newsletters, automated notifications whose content is already reflected elsewhere (bank apps, package trackers), and anything with no value to a household once read.
 - KEEP (mark as read only): personal correspondence, financial or legal records, receipts for purchases that might be returned or expensed, appointments or travel confirmations, and anything you are unsure about.
 
-Be conservative: when in doubt, keep. Then reply with a short report — one line per deleted message ("deleted: <subject> — <why>"), one line per kept message, or "inbox already clear" if there was nothing.`
+Be conservative: when in doubt, keep. Then reply with a tiny summary only — one short line, e.g. "Cleared 14: kept 2 (bank statement, dentist confirmation), deleted 12 junk." Never list individual messages or reasons; the family can ask if they want detail.`
 
 /**
  * Run the agentic inbox triage through its own durable session.
