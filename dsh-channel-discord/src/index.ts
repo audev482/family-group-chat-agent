@@ -33,6 +33,12 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { execFile } from 'node:child_process'
+import { createWriteStream } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { pipeline } from 'node:stream/promises'
 // Type-only: carries the `ctx.household` Context declaration.
 import type {} from 'dsh-household'
 import { describeSender, loadDiscordSdk, splitForDiscord } from './discord.ts'
@@ -333,7 +339,10 @@ export class DiscordChannel extends Service {
     } else if (!this.listening.has(message.channelId)) {
       return 'channel is not in channelIds'
     }
-    if (message.content.trim() === '') return 'no text content'
+    if ((message.content.trim() === '') && !message.attachments.some(a => a.isVoiceMessage
+      || (a.contentType?.startsWith('audio/') ?? false))) {
+      return 'no text content'
+    }
     // A mention-only room stays quiet until addressed; a direct message is
     // already addressed to the butler.
     if (!isDirect && (this.config.respondTo ?? 'all') === 'mention'
@@ -363,10 +372,74 @@ export class DiscordChannel extends Service {
       userId: message.author.id,
       ...member !== undefined ? { memberKey: member.key } : {},
     })
-    this.deliver(message).catch(() => {
-      // deliver() already reports failure into the room; nothing further is
-      // reachable here without a second failing send.
-    })
+    void (async () => {
+      const voiceText = await this.transcribeVoiceNotes(message).catch((cause: unknown) => {
+        // A failed transcription must not silently drop the message: say so in
+        // the room, the way a failed turn would.
+        const detail = cause instanceof Error ? cause.message : String(cause)
+        void this.post(message.channelId, `I could not listen to that voice note: ${detail}`, message.channel).catch(() => undefined)
+        return undefined as string | undefined
+      })
+      if (voiceText === undefined && message.content.trim() === '') return
+      await this.deliver({
+        ...message,
+        content: voiceText === undefined
+          ? message.content
+          : message.content.trim() === ''
+            ? voiceText
+            : `${message.content}\n${voiceText}`,
+      })
+    })()
+  }
+
+  /**
+   * Transcribe every voice-note attachment on one message with local Whisper.
+   *
+   * Returns the joined transcript prefixed per clip, or `undefined` when the
+   * message carries no voice notes. A missing binary or model is a hard error:
+   * voice arriving while transcription is unconfigured should be visible, not
+   * silently swallowed.
+   */
+  private async transcribeVoiceNotes(message: DiscordMessage): Promise<string | undefined> {
+    const clips = message.attachments.filter(attachment => attachment.isVoiceMessage
+      || (attachment.contentType?.startsWith('audio/') ?? false))
+    if (clips.length === 0) return undefined
+
+    const bin = process.env.DSH_WHISPER_BIN ?? '/opt/whisper.cpp/build/bin/whisper-cli'
+    const model = process.env.DSH_WHISPER_MODEL ?? '/opt/whisper.cpp/models/ggml-tiny.en.bin'
+    const dir = await mkdtemp(path.join(tmpdir(), 'dsh-voice-'))
+    try {
+      const parts: string[] = []
+      let index = 0
+      for (const clip of clips) {
+        index += 1
+        const ext = path.extname(clip.filename) || '.ogg'
+        const rawPath = path.join(dir, `clip-${index}${ext}`)
+        const wavPath = path.join(dir, `clip-${index}.wav`)
+        const response = await fetch(clip.url)
+        if (!response.ok || response.body === null) {
+          throw new Error(`downloading the audio failed (${response.status})`)
+        }
+        await pipeline(response.body, createWriteStream(rawPath))
+        // whisper-cli needs 16 kHz mono WAV; ffmpeg converts anything else. When
+        // the clip is already 16 kHz mono WAV the convert is a cheap copy.
+        await new Promise<void>((resolve, reject) => {
+          execFile('ffmpeg', ['-y', '-i', rawPath, '-ar', '16000', '-ac', '1', wavPath],
+            { timeout: 60_000 }, error => error === null ? resolve() : reject(new Error('converting the audio failed')));
+        })
+        const text = await new Promise<string>((resolve, reject) => {
+          execFile(bin, ['-m', model, '-nt', '-l', 'en', wavPath],
+            { timeout: 300_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
+              if (error !== null) { reject(new Error('transcription failed')); return }
+              resolve(stdout.trim())
+            });
+        })
+        if (text !== '') parts.push(text)
+      }
+      return parts.length === 0 ? undefined : `[voice] ${parts.join(' ')}`
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    }
   }
 
   /**

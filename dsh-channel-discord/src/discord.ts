@@ -25,6 +25,18 @@ export interface DiscordChannel {
   isTextBased?: () => boolean
 }
 
+/** One attachment on an inbound message. */
+export interface DiscordAttachment {
+  /** Attachment filename, e.g. `voice-message.ogg`. */
+  filename: string
+  /** MIME type as Discord reports it. */
+  contentType?: string | null
+  /** CDN URL the bytes can be fetched from. */
+  url: string
+  /** True when Discord flagged this as a native voice message. */
+  isVoiceMessage: boolean
+}
+
 /** One inbound message. */
 export interface DiscordMessage {
   /** Snowflake id, used for deduplication. */
@@ -53,6 +65,8 @@ export interface DiscordMessage {
   channel?: DiscordChannel
   /** Snowflake ids this message mentions. */
   mentionedUserIds: string[]
+  /** Attachments on the message; voice notes carry `isVoiceMessage`. */
+  attachments: DiscordAttachment[]
 }
 
 /** The bot connection. */
@@ -153,8 +167,25 @@ async function importSdk(): Promise<DiscordSdk> {
               member?: { displayName?: string | null } | null
               channel?: DiscordChannel
               mentions?: { users?: { keys?: () => Iterable<string> } }
+              attachments?: Map<string, {
+                name?: string
+                contentType?: string | null
+                url: string
+                flags?: Set<string> | string[]
+              }>
             }
             const mentionedUserIds = [...raw.mentions?.users?.keys?.() ?? []]
+            const attachments = [...raw.attachments?.values() ?? []].map(attachment => ({
+              filename: attachment.name ?? 'attachment',
+              contentType: attachment.contentType,
+              url: attachment.url,
+              isVoiceMessage: (() => {
+                const flags = attachment.flags
+                if (flags instanceof Set) return flags.has('IS_VOICE_MESSAGE')
+                if (Array.isArray(flags)) return flags.includes('IS_VOICE_MESSAGE')
+                return false
+              })(),
+            }))
             handler({
               id: raw.id,
               content: raw.content,
@@ -163,6 +194,7 @@ async function importSdk(): Promise<DiscordSdk> {
               author: raw.author,
               member: raw.member ?? null,
               mentionedUserIds,
+              attachments,
               ...raw.channel !== undefined ? { channel: raw.channel } : {},
             })
           })
