@@ -270,6 +270,8 @@ export function apply(ctx: Context, config: Config): void {
       if (config.skipWhenEmpty === true && !digest.hasContent) return
       await ctx.discord.announce(config.channelId, digest.text)
       if (config.mailTriage !== true) return
+      // The triage speaks only when something deserves attention; routine
+      // deletions happen silently.
       const triage = await mailTriageTurn(ctx)
       if (triage.trim() !== '') await ctx.discord.announce(config.channelId, triage)
     }
@@ -303,7 +305,7 @@ const TRIAGE_PROMPT = `Morning mail triage. Use your mail tools to list the unre
 - DELETE: marketing, newsletters, automated notifications whose content is already reflected elsewhere (bank apps, package trackers), and anything with no value to a household once read.
 - KEEP (mark as read only): personal correspondence, financial or legal records, receipts for purchases that might be returned or expensed, appointments or travel confirmations, and anything you are unsure about.
 
-Be conservative: when in doubt, keep. Then reply with a tiny summary only — one short line, e.g. "Cleared 14: kept 2 (bank statement, dentist confirmation), deleted 12 junk." Never list individual messages or reasons; the family can ask if they want detail.`
+Be conservative: when in doubt, keep. Then stay quiet unless something genuinely deserves the family's attention — a message someone should read or act on. If there is such a message, say so in one short line each ("Dentist confirmed Thursday 3pm — no action needed"). Otherwise reply with nothing at all: no counts, no lists of what you deleted, no play-by-play.`
 
 /**
  * Run the agentic inbox triage through its own durable session.
