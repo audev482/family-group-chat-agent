@@ -106,7 +106,15 @@ export interface Digest {
  * @returns the line, or undefined when there is no mailbox or no unread mail.
  */
 export async function unreadMailLine(ctx: Context): Promise<string | undefined> {
-  const mail = (ctx as { mail?: Context['mail'] }).mail
+  // The proxy throws on an undeclared service rather than returning undefined
+  // (mail is deliberately absent from `inject` so the digest works without a
+  // mailbox), so the soft read has to be failure-tolerant.
+  let mail: Context['mail']
+  try {
+    mail = (ctx as { mail?: Context['mail'] }).mail
+  } catch {
+    return undefined
+  }
   if (mail === undefined) return undefined
   try {
     const unread = await mail.search({ mailbox: 'INBOX', seen: false, limit: 25 })
