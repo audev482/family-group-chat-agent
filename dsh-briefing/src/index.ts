@@ -19,6 +19,11 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { installModelSelection, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+// Type-only: carries the `ctx.agentDefaultModel` Context declaration.
+import type {} from '@deepseek-ai/dsh-agent-default-model'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { collectEvents, formatAgenda, scopeFor } from 'dsh-calendar'
 import { byUrgency, choreLine, collectChores, isCancelled, isDone } from 'dsh-chores'
 import type { ChoreEntry } from 'dsh-chores'
@@ -40,7 +45,7 @@ export type { ScheduleClock, TimeOfDay } from './schedule.ts'
 /** Cordis plugin name. */
 export const name = 'briefing'
 /** The channel to speak through, the data to speak about, and the roster to name people by. */
-export const inject = ['discord', 'caldav', 'household']
+export const inject = ['discord', 'caldav', 'household', 'agents', 'agentDefaultModel']
 
 /** When the digest goes out when the household does not say. */
 export const DEFAULT_BRIEFING_TIME = '07:30'
@@ -69,6 +74,13 @@ export interface Config {
   includeMail?: boolean
   /** Post nothing when there is nothing to report, rather than saying so. */
   skipWhenEmpty?: boolean
+  /**
+   * After the digest, run one agent turn over the unread inbox: the model
+   * judges each message's future utility and deletes what has none, keeping
+   * anything personal, financial, legal, or plausibly reference-worthy. The
+   * triage summary posts into the room so the family can audit every call.
+   */
+  mailTriage?: boolean
   /** CalDAV server name, when more than one is configured. */
   server?: string
 }
@@ -81,6 +93,7 @@ export const Config: z<Config> = z.object({
   includeChores: z.boolean().default(true),
   includeMail: z.boolean().default(true),
   skipWhenEmpty: z.boolean().default(false),
+  mailTriage: z.boolean().default(false),
   server: z.string(),
 })
 
@@ -256,6 +269,9 @@ export function apply(ctx: Context, config: Config): void {
       })
       if (config.skipWhenEmpty === true && !digest.hasContent) return
       await ctx.discord.announce(config.channelId, digest.text)
+      if (config.mailTriage !== true) return
+      const triage = await mailTriageTurn(ctx)
+      if (triage.trim() !== '') await ctx.discord.announce(config.channelId, triage)
     }
 
     const schedule = (): void => {
@@ -277,4 +293,63 @@ export function apply(ctx: Context, config: Config): void {
       if (timer !== undefined) clearTimeout(timer)
     }
   })
+}
+
+/** Stable session identity for the daily mail triage, so it remembers past calls. */
+const TRIAGE_SESSION_ID = SessionId('briefing-mail-triage')
+
+const TRIAGE_PROMPT = `Morning mail triage. Use your mail tools to list the unread messages in INBOX, then decide each one's fate by its future utility:
+
+- DELETE: marketing, newsletters, automated notifications whose content is already reflected elsewhere (bank apps, package trackers), and anything with no value to a household once read.
+- KEEP (mark as read only): personal correspondence, financial or legal records, receipts for purchases that might be returned or expensed, appointments or travel confirmations, and anything you are unsure about.
+
+Be conservative: when in doubt, keep. Then reply with a short report — one line per deleted message ("deleted: <subject> — <why>"), one line per kept message, or "inbox already clear" if there was nothing.`
+
+/**
+ * Run the agentic inbox triage through its own durable session.
+ *
+ * The session id is stable across restarts so the triage accumulates memory of
+ * what this family keeps and discards — the judgment is supposed to improve
+ * with use rather than start over every morning.
+ * @param ctx - plugin context; requires agents and agentDefaultModel.
+ * @returns the model's report text, possibly empty.
+ */
+async function mailTriageTurn(ctx: Context): Promise<string> {
+  const selection = ctx.agentDefaultModel.currentSelection()
+  const agentOptions = { provider: selection.provider, model: selection.model }
+  const setup = (agentCtx: Context): void => {
+    installModelSelection(agentCtx, { current: selection, assembled: undefined })
+  }
+  const handle = await ctx.agents.create({
+    sessionId: TRIAGE_SESSION_ID,
+    meta: { cwd: process.cwd() },
+    agentOptions,
+    setup,
+  }).catch(async () => await ctx.agents.resume({
+    resumeSessionId: TRIAGE_SESSION_ID,
+    agentOptions,
+    setup,
+  }))
+  try {
+    const agent = handle.agent
+    await agent.whenIdle()
+    const firstSeq = agent.session.seq
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: TRIAGE_PROMPT }] as never,
+      source: { kind: 'plugin', name: 'dsh-briefing' },
+    }))
+    await agent.whenIdle()
+    let text = ''
+    for (const event of agent.session.events) {
+      if (event.seq < firstSeq || event.type !== 'assistant/message') continue
+      const joined = event.data.message.content
+        .filter((block: { type: string }) => block.type === 'text')
+        .map((block: { text?: string }) => block.text ?? '')
+        .join('')
+      if (joined !== '') text = joined
+    }
+    return text
+  } finally {
+    await handle.dispose().catch(() => undefined)
+  }
 }

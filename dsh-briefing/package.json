@@ -34,6 +34,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-agent-default-model": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.1-rc.2",
     "dsh-caldav": "workspace:*",
     "dsh-calendar": "workspace:*",
     "dsh-channel-discord": "workspace:*",
