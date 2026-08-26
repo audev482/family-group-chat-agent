@@ -98,3 +98,22 @@ export function nextRun(clock: ScheduleClock, at: TimeOfDay, now: Date): Date {
   if (dueToday.getTime() > now.getTime()) return dueToday
   return instantOn(clock.shiftDay(today, 1), at, clock.timezone)
 }
+
+/**
+ * Spread a scheduled instant across a random minute of its hour.
+ *
+ * Several households scheduling "on the hour, every morning" would otherwise
+ * present the same load spike at minute zero — to their own mail server as much
+ * as to anything else. The configured time anchors the *hour*; the minute and
+ * second are uniform random. If the draw lands before `now` (possible when the
+ * anchor was already within the current hour), the unjittered instant is kept
+ * so the schedule never fires late-or-never.
+ * @param due - the exact scheduled instant (from `nextRun`).
+ * @param now - the instant scheduling is happening at.
+ * @returns the jittered instant, strictly after `now`.
+ */
+export function withinHourJitter(due: Date, now: Date): Date {
+  const jittered = new Date(due)
+  jittered.setUTCMinutes(Math.floor(Math.random() * 60), Math.floor(Math.random() * 60), 0)
+  return jittered.getTime() > now.getTime() ? jittered : due
+}

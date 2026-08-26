@@ -34,6 +34,7 @@ import type {} from 'dsh-household'
 // Type-only: carries the `ctx.discord` Context declaration.
 import type {} from 'dsh-channel-discord'
 import { nextRun, parseTimeOfDay } from './schedule.ts'
+import { withinHourJitter } from 'dsh-household'
 import type { TimeOfDay } from './schedule.ts'
 // Type-only: carries the `ctx.mail` Context declaration. Mail is a soft
 // dependency — see `unreadMailLine`.
@@ -278,7 +279,7 @@ export function apply(ctx: Context, config: Config): void {
 
     const schedule = (): void => {
       if (stopped) return
-      const due = nextRun(ctx.household, at, new Date())
+      const due = withinHourJitter(nextRun(ctx.household, at, new Date()), new Date())
       const delay = Math.max(1_000, due.getTime() - Date.now())
       timer = setTimeout(() => {
         // Re-arm before posting so one failed morning does not end the series.

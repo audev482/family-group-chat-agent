@@ -35,7 +35,7 @@
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { nextRun, parseTimeOfDay } from 'dsh-household'
+import { nextRun, withinHourJitter, parseTimeOfDay } from 'dsh-household'
 // Type-only: carries the `ctx.household` Context declaration.
 import type {} from 'dsh-household'
 // Type-only: carries the `ctx.caldav` Context declaration.
@@ -182,7 +182,7 @@ export class Planner extends Service {
   private arm(): void {
     if (this.stopped) return
     const at = parseTimeOfDay(this.config.time ?? DEFAULT_TIME)
-    const due = nextRun(this.ctx.household, at, new Date())
+    const due = withinHourJitter(nextRun(this.ctx.household, at, new Date()), new Date())
     const delay = Math.max(0, due.getTime() - Date.now())
     this.timer = setTimeout(() => {
       this.arm()
