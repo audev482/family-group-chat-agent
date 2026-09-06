@@ -12,3 +12,28 @@ packages:
   - dsh-butler-persona
   - dsh-briefing
   - dsh-planner
+
+allowBuilds:
+  esbuild: true
+
+# Resolve harness seams to the locally built mainline tip
+# (/root/deepseek-harness @ 0.1.3-alpha.1): that release line is not published
+# to npm, so every @deepseek-ai/dsh-* import must link to local sources.
+linkWorkspacePackages: true
+
+overrides:
+  '@deepseek-ai/cordis': 'link:/root/deepseek-harness/vendor/cordis'
+  '@deepseek-ai/schemastery': 'link:/root/deepseek-harness/vendor/schemastery'
+  '@deepseek-ai/dsh-agent': 'link:/root/deepseek-harness/packages/core/agent'
+  '@deepseek-ai/dsh-agent-default-model': 'link:/root/deepseek-harness/packages/core/agent-default-model'
+  '@deepseek-ai/dsh-agent-loop': 'link:/root/deepseek-harness/packages/core/agent-loop'
+  '@deepseek-ai/dsh-credentials': 'link:/root/deepseek-harness/packages/credentials/credentials'
+  '@deepseek-ai/dsh-invariants': 'link:/root/deepseek-harness/packages/runtime-diagnostics/invariants'
+  '@deepseek-ai/dsh-llm': 'link:/root/deepseek-harness/packages/llm/llm'
+  '@deepseek-ai/dsh-session': 'link:/root/deepseek-harness/packages/core/session'
+  '@deepseek-ai/dsh-session-projection': 'link:/root/deepseek-harness/packages/session/session-projection'
+  '@deepseek-ai/dsh-storage': 'link:/root/deepseek-harness/packages/storage/storage'
+  '@deepseek-ai/dsh-storage-domain': 'link:/root/deepseek-harness/packages/storage/storage-domain'
+  '@deepseek-ai/dsh-system-prompt': 'link:/root/deepseek-harness/packages/core/system-prompt'
+  '@deepseek-ai/dsh-token-meter': 'link:/root/deepseek-harness/packages/llm/token-meter'
+  '@deepseek-ai/dsh-tools': 'link:/root/deepseek-harness/packages/core/tools'

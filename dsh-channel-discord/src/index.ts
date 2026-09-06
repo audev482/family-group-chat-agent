@@ -503,7 +503,7 @@ export class DiscordChannel extends Service {
         typing?.()
       }
       if (this.stopped) return undefined
-      const reply = lastAssistantText(agent.session.events, firstSeq)
+      const reply = lastAssistantText(agent.session.snapshotEvents(), firstSeq)
       if (reply.trim() === '') return undefined
       await this.post(room, reply, turn.channel)
       return reply

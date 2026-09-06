@@ -177,7 +177,9 @@ async function importSdk(): Promise<DiscordSdk> {
             const mentionedUserIds = [...raw.mentions?.users?.keys?.() ?? []]
             const attachments = [...raw.attachments?.values() ?? []].map(attachment => ({
               filename: attachment.name ?? 'attachment',
-              contentType: attachment.contentType,
+              // Normalize absent MIME to null: the seam types `contentType?`
+              // as `string | null`, and explicit undefined is rejected.
+              contentType: attachment.contentType ?? null,
               url: attachment.url,
               isVoiceMessage: (() => {
                 const flags = attachment.flags

@@ -19,7 +19,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { installModelSelection, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import { installModelSelection } from '@deepseek-ai/dsh-agent'
 // Type-only: carries the `ctx.agentDefaultModel` Context declaration.
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -123,7 +123,7 @@ export async function unreadMailLine(ctx: Context): Promise<string | undefined> 
   // The proxy throws on an undeclared service rather than returning undefined
   // (mail is deliberately absent from `inject` so the digest works without a
   // mailbox), so the soft read has to be failure-tolerant.
-  let mail: Context['mail']
+  let mail: Context['mail'] | undefined
   try {
     mail = (ctx as { mail?: Context['mail'] }).mail
   } catch {
@@ -339,15 +339,16 @@ async function mailTriageTurn(ctx: Context): Promise<string> {
     const firstSeq = agent.session.seq
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: TRIAGE_PROMPT }] as never,
-      source: { kind: 'plugin', name: 'dsh-briefing' },
+      // Harness 0.1.3-alpha.1 renamed the plugin source field `name` → `plugin`.
+      source: { kind: 'plugin', plugin: 'dsh-briefing' },
     }))
     await agent.whenIdle()
     let text = ''
-    for (const event of agent.session.events) {
+    for (const event of agent.session.snapshotEvents()) {
       if (event.seq < firstSeq || event.type !== 'assistant/message') continue
-      const joined = event.data.message.content
-        .filter((block: { type: string }) => block.type === 'text')
-        .map((block: { text?: string }) => block.text ?? '')
+      const joined = (event.data.message.content as Array<{ type: string; text?: string }>)
+        .filter(block => block.type === 'text')
+        .map(block => block.text ?? '')
         .join('')
       if (joined !== '') text = joined
     }
